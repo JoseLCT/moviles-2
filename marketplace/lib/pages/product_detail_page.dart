@@ -20,6 +20,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final arguments = (ModalRoute.of(context)?.settings.arguments ??
+        <String, dynamic>{}) as Map;
+    final int id = arguments['id'];
+
     return Scaffold(
       backgroundColor: Colors.grey.shade900,
       extendBody: true,
@@ -39,7 +43,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         backgroundColor: Colors.grey.shade900,
       ),
       body: FutureBuilder(
-          future: getProduct(6),
+          future: getProduct(id),
           builder: (context, snapshot) {
             if (snapshot.hasData) {
               return getProductView(snapshot.data);
