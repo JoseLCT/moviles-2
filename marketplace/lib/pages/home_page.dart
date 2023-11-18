@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:marketplace/models/category_model.dart';
 import 'package:marketplace/models/product_model.dart';
 import 'package:marketplace/services/category_service.dart';
@@ -15,26 +18,23 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final String apiUrl = dotenv.get('API_URL');
   Future<List<Category>>? categories;
-  Category? category;
+  int? _idCategory = 0;
+
+  final Completer<GoogleMapController> _mapsController = Completer();
 
   @override
   void initState() {
     super.initState();
     categories = getCategories();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
       backgroundColor: Colors.grey.shade900,
       body: CustomScrollView(
-        slivers: [
-          getHeader(),
-          getSubHeader(),
-          getProductListView(),
-          getProductListView(),
-        ],
+        slivers: [getHeader(), getSubHeader(), getProductListView()],
       ),
     );
   }
@@ -76,69 +76,119 @@ class _HomePageState extends State<HomePage> {
                     color: Colors.blue,
                     fontWeight: FontWeight.bold,
                     fontSize: 16))),
+        const SizedBox(width: 8),
         const Text('|', style: TextStyle(color: Colors.white)),
+        const SizedBox(width: 8),
         IconButton(
             onPressed: () {
               showModalBottomSheet(
+                  isScrollControlled: true,
                   context: context,
+                  backgroundColor: Colors.grey.shade900,
+                  barrierColor: Colors.black.withOpacity(0.5),
                   builder: (context) {
-                    return getFiltersView();
+                    return getCategoryFilterView();
                   });
             },
             icon: const Icon(Icons.filter_list, color: Colors.white)),
+        IconButton(
+            onPressed: () {},
+            icon: const Icon(Icons.location_on, color: Colors.white)),
       ],
     ));
   }
 
-  Widget getFiltersView() {
-    return Container(
-        color: Colors.grey.shade900,
-        child: Container(
-          margin: const EdgeInsets.all(12),
-          child: Column(
+  Widget getCategoryFilterView() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 50,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade700,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ],
+              Container(
+                width: 50,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade700,
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              const SizedBox(height: 12),
-              const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Categorias',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16))),
-              const SizedBox(height: 12),
-              FutureBuilder(future: categories, builder: (context, snapshot) {
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text('Categorias',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16)),
+          const SizedBox(height: 12),
+          FutureBuilder(
+              future: categories,
+              builder: (context, snapshot) {
                 if (snapshot.hasData) {
-                  return Wrap(
-                      children: List.generate(snapshot.data!.length, (index) {
-                    return ChoiceChip(
-                        label: Text(snapshot.data?[index].name ?? '',
-                            style: const TextStyle(color: Colors.white)),
-                        selected: false,
-                        onSelected: (value) {},
-                    );
-                  }));
+                  return StatefulBuilder(
+                      builder: (context, setStateBottomSheet) {
+                    return getCategoryListView(
+                        snapshot.data, setStateBottomSheet);
+                  });
                 } else if (snapshot.hasError) {
                   return const Text('Error');
                 } else {
-                  return const Text('Loading...');
+                  return const CircularProgressIndicator();
                 }
               }),
-            ],
+        ],
+      ),
+    );
+  }
+
+  Widget getCategoryListView(
+      List<Category>? categories, Function setStateBottomSheet) {
+    if (categories == null) {
+      return const Text('Error');
+    }
+    return Wrap(
+      spacing: 8,
+      alignment: WrapAlignment.center,
+      children: List<Widget>.generate(categories.length, (index) {
+        return ChoiceChip(
+          label: Text(categories[index].name,
+              style: const TextStyle(color: Colors.white)),
+          selected: _idCategory == categories[index].id,
+          selectedColor: const Color.fromARGB(255, 0, 122, 255),
+          backgroundColor: const Color.fromARGB(255, 54, 54, 54),
+          checkmarkColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
-        ));
+          side: BorderSide.none,
+          onSelected: (selected) {
+            setStateBottomSheet(() {
+              _idCategory = selected ? categories[index].id : null;
+            });
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  Widget getMap() {
+    return Container(
+      height: 200,
+      child: GoogleMap(
+        mapType: MapType.normal,
+        initialCameraPosition: const CameraPosition(
+          target: LatLng(-17.7833, -63.1667),
+          zoom: 14,
+        ),
+        onMapCreated: (GoogleMapController controller) {
+          _mapsController.complete(controller);
+        },
+      ),
+    );
   }
 
   Widget getProductListView() {

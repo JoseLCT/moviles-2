@@ -10,9 +10,11 @@ API_URL=
 GOOGLE_MAPS_API_KEY=
 ```
 
-### Configuración del proyecto
+### Configuración del proyecto en Android
 
-android > app > src > main > AndroidManifest.xml
+android/app/src/main/AndroidManifest.xml
+
+Se debe agregar el siguiente código dentro de la etiqueta `<manifest>`
 
 ```xml
 <queries>
@@ -31,4 +33,22 @@ android > app > src > main > AndroidManifest.xml
     <action android:name="android.support.customtabs.action.CustomTabsService" />
 </intent>
 </queries>
+```
+
+Se debe agregar el siguiente código dentro de la etiqueta `<application>`, reemplazando `GOOGLE_MAPS_API_KEY` por la API Key de Google Maps
+
+```xml
+<meta-data
+    android:name="com.google.android.geo.API_KEY"
+    android:value="GOOGLE_MAPS_API_KEY" />
+```
+
+android/app/build.gradle
+
+```gradle
+android {
+    defaultConfig {
+        minSdkVersion 20
+    }
+}
 ```
