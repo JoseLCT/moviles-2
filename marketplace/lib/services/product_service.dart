@@ -134,3 +134,19 @@ Future<bool> updateProduct(Product product, String token, int id) async {
     throw Exception(response.body);
   }
 }
+
+Future<bool> deleteProduct(int id, String token) async {
+  final response = await http.delete(
+    Uri.parse('$url/api/products/$id'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    },
+  );
+
+  if (response.statusCode == 200) {
+    return true;
+  } else {
+    throw Exception(response.body);
+  }
+}

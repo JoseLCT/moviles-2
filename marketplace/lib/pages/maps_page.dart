@@ -101,67 +101,88 @@ class _MapsPageState extends State<MapsPage> {
             ),
           ),
           Expanded(
-            child: Stack(
-              children: [
-                GoogleMap(
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: true,
-                  onMapCreated: (GoogleMapController controller) {
-                    _mapsController = controller;
-                  },
-                  initialCameraPosition: CameraPosition(
-                    target: _location,
-                    zoom: _zoom,
-                  ),
-                  circles: {
-                    Circle(
-                      circleId: const CircleId('1'),
-                      center: _location,
-                      radius: _radius * 1000,
-                      fillColor: Colors.blue.withOpacity(0.2),
-                      strokeColor: Colors.blue,
-                      strokeWidth: 2,
-                      visible: _mode == 'filter',
+            child: LayoutBuilder(builder: (context, constraints) {
+              return Stack(
+                children: [
+                  GoogleMap(
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: true,
+                    onMapCreated: (GoogleMapController controller) {
+                      _mapsController = controller;
+                    },
+                    initialCameraPosition: CameraPosition(
+                      target: _location,
+                      zoom: _zoom,
                     ),
-                  },
-                  onTap: (LatLng latLng) {
-                    setState(() {
-                      onMapTap(latLng);
-                    });
-                  },
-                  markers: {
-                    Marker(
-                      markerId: const MarkerId('1'),
-                      position: _location,
-                    ),
-                  },
-                ),
-                if (_places != null)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      color: Colors.grey.shade900,
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _places!.length,
-                        itemBuilder: (context, index) {
-                          return ListTile(
-                            onTap: () {
-                              onPlaceTap(_places![index].placeId);
-                            },
-                            title: Text(
-                              _places![index].description,
-                              style: const TextStyle(color: Colors.white),
-                            ),
+                    circles: {
+                      Circle(
+                        circleId: const CircleId('1'),
+                        center: _location,
+                        radius: _radius * 1000,
+                        fillColor: Colors.blue.withOpacity(0.2),
+                        strokeColor: Colors.blue,
+                        strokeWidth: 2,
+                        visible: _mode == 'filter',
+                      ),
+                    },
+                    onCameraIdle: () {
+                      setState(() {
+                        _mapsController?.getVisibleRegion().then((value) {
+                          final LatLngBounds visibleRegion = value;
+                          final LatLng centerLatLng = LatLng(
+                            (visibleRegion.northeast.latitude +
+                                    visibleRegion.southwest.latitude) /
+                                2,
+                            (visibleRegion.northeast.longitude +
+                                    visibleRegion.southwest.longitude) /
+                                2,
                           );
-                        },
+                          _location = centerLatLng;
+                        });
+                      });
+                    },
+                  ),
+                  Positioned(
+                    left: constraints.maxWidth / 2 - 12,
+                    top: constraints.maxHeight / 2 - 12,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: const Icon(Icons.circle,
+                          color: Color.fromARGB(255, 8, 102, 255), size: 23),
+                    ),
+                  ),
+                  if (_places != null)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        color: Colors.grey.shade900,
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _places!.length,
+                          itemBuilder: (context, index) {
+                            return ListTile(
+                              onTap: () {
+                                onPlaceTap(_places![index].placeId);
+                              },
+                              title: Text(
+                                _places![index].description,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            ),
+                ],
+              );
+            }),
           ),
           if (_mode == 'filter')
             Container(
@@ -266,15 +287,6 @@ class _MapsPageState extends State<MapsPage> {
         placeLocation.result!.geometry.location.lat,
         placeLocation.result!.geometry.location.lng,
       );
-      _zoom = 14;
-      cleanSearch();
-      moveMapCamera();
-    });
-  }
-
-  void onMapTap(LatLng latLng) {
-    setState(() {
-      _location = latLng;
       _zoom = 14;
       cleanSearch();
       moveMapCamera();

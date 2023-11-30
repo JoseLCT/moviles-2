@@ -17,7 +17,6 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final LocalStorage storage = LocalStorage('marketplace_app');
   final String apiUrl = dotenv.get('API_URL');
-  Future<List<Product>>? productsFiltered;
   Future<List<Product>>? products;
   User? _user;
 
@@ -33,7 +32,6 @@ class _ProfilePageState extends State<ProfilePage> {
       getProductsByToken(token).then((value) {
         setState(() {
           products = Future.value(value);
-          productsFiltered = Future.value(value);
         });
       }).catchError((error) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -210,7 +208,6 @@ class _ProfilePageState extends State<ProfilePage> {
                             getProductsByToken(token).then((value) {
                               setState(() {
                                 products = Future.value(value);
-                                productsFiltered = Future.value(value);
                               });
                             }).catchError((error) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -249,7 +246,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget getProductListView() {
     return FutureBuilder<List<Product>>(
-      future: productsFiltered,
+      future: products,
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           return SliverList(
@@ -331,7 +328,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       backgroundColor: Colors.grey.shade900,
                       barrierColor: Colors.black.withOpacity(0.5),
                       builder: (context) {
-                        return getProductOptionsView(product.id);
+                        return getProductOptionsView(product.id, context);
                       });
                 },
                 icon: const Icon(Icons.more_horiz_rounded, color: Colors.grey)),
@@ -339,7 +336,8 @@ class _ProfilePageState extends State<ProfilePage> {
         ));
   }
 
-  Widget getProductOptionsView(int? productId) {
+  Widget getProductOptionsView(
+      int? productId, BuildContext bottomSheetContext) {
     return Container(
       padding: const EdgeInsets.only(top: 12, bottom: 24),
       width: double.infinity,
@@ -394,7 +392,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 getProductsByToken(token).then((value) {
                   setState(() {
                     products = Future.value(value);
-                    productsFiltered = Future.value(value);
                   });
                 }).catchError((error) {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -424,7 +421,65 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(height: 16),
           GestureDetector(
             onTap: () {
-              Navigator.pop(context);
+              showDialog(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      backgroundColor: Colors.grey.shade900,
+                      title: const Text('Eliminar publicación',
+                          style: TextStyle(color: Colors.white)),
+                      content: const Text(
+                          '¿Estás seguro que deseas eliminar esta publicación?',
+                          style: TextStyle(color: Colors.white)),
+                      actions: [
+                        TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            child: const Text('Cancelar',
+                                style: TextStyle(color: Colors.white))),
+                        TextButton(
+                            onPressed: () {
+                              if (productId == null) {
+                                return;
+                              }
+                              String token = storage.getItem('token');
+                              deleteProduct(productId, token).then((value) {
+                                String token = storage.getItem('token');
+                                getProductsByToken(token).then((value) {
+                                  setState(() {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Publicación eliminada exitosamente'),
+                                            backgroundColor: Color.fromARGB(
+                                                255, 18, 87, 189)));
+                                    products = Future.value(value);
+                                    Navigator.pop(context);
+                                    Navigator.pop(bottomSheetContext);
+                                  });
+                                }).catchError((error) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          backgroundColor: Colors.red,
+                                          content: Text(error.toString(),
+                                              style: const TextStyle(
+                                                  color: Colors.white))));
+                                });
+                              }).catchError((error) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        backgroundColor: Colors.red,
+                                        content: Text(error.toString(),
+                                            style: const TextStyle(
+                                                color: Colors.white))));
+                              });
+                            },
+                            child: const Text('Eliminar',
+                                style: TextStyle(color: Colors.red))),
+                      ],
+                    );
+                  });
             },
             child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14),

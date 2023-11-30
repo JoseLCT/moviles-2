@@ -1,6 +1,7 @@
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:localstorage/localstorage.dart';
 import 'package:marketplace/models/product_model.dart';
 import 'package:marketplace/services/product_service.dart';
 import 'package:shimmer/shimmer.dart';
@@ -17,6 +18,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   final String apiUrl = dotenv.get('API_URL');
   final String mapsApiKey = dotenv.get('GOOGLE_MAPS_API_KEY');
   final _formKey = GlobalKey<FormState>();
+  final LocalStorage storage = LocalStorage('marketplace_app');
 
   @override
   Widget build(BuildContext context) {
@@ -28,12 +30,6 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       backgroundColor: Colors.grey.shade900,
       extendBody: true,
       appBar: AppBar(
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
         leading: IconButton(
           icon: const Icon(Icons.close, color: Colors.white),
           onPressed: () {
@@ -62,6 +58,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     if (product == null) {
       return const Text('No product found');
     }
+    String token = storage.getItem('token') ?? '';
     return SingleChildScrollView(
         child: Column(
       children: [
@@ -93,9 +90,15 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             Text(
               product.price == 0 ? 'Gratis' : 'Bs. ${product.price}',
               style: const TextStyle(
-                  fontSize: 20, color: Color.fromARGB(255, 228, 230, 235)),
+                  fontSize: 18, color: Color.fromARGB(255, 228, 230, 235)),
             ),
-            getCardMessage(),
+            if (token.isNotEmpty) ...[
+              getCardMessage(),
+            ] else ...[
+              const SizedBox(height: 8),
+              Divider(color: Colors.grey.shade700),
+              const SizedBox(height: 8),
+            ],
             const Text(
               'Descripción',
               style: TextStyle(
@@ -111,43 +114,48 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             ),
             const SizedBox(height: 8),
             Divider(color: Colors.grey.shade700),
-            const SizedBox(height: 8),
-            const Text('Información del vendedor',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Container(
-                  width: 35,
-                  height: 35,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(25),
-                  ),
-                  child: const Icon(Icons.person, color: Colors.white),
+            if (token.isNotEmpty)
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const SizedBox(height: 8),
+                const Text('Información del vendedor',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 35,
+                      height: 35,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      child: const Icon(Icons.person, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      product.user?.fullname ?? 'N/A',
+                      style: const TextStyle(
+                          fontSize: 16,
+                          color: Color.fromARGB(255, 228, 230, 235)),
+                    ),
+                    const Spacer(),
+                    Container(
+                      width: 35,
+                      height: 35,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(25),
+                        color: const Color.fromARGB(255, 54, 54, 54),
+                      ),
+                      child: const Icon(Icons.message,
+                          color: Colors.white, size: 20),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  product.user?.fullname ?? 'N/A',
-                  style: const TextStyle(
-                      fontSize: 16, color: Color.fromARGB(255, 228, 230, 235)),
-                ),
-                const Spacer(),
-                Container(
-                  width: 35,
-                  height: 35,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(25),
-                    color: const Color.fromARGB(255, 54, 54, 54),
-                  ),
-                  child: const Icon(Icons.message, color: Colors.white, size: 20),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Divider(color: Colors.grey.shade700),
+                const SizedBox(height: 8),
+                Divider(color: Colors.grey.shade700),
+              ]),
             const SizedBox(height: 8),
             const Text(
               'Detalles',
@@ -193,7 +201,41 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             const SizedBox(height: 8),
             Divider(color: Colors.grey.shade700),
             const SizedBox(height: 16),
-            getMapCard(product),
+            if (token.isNotEmpty) ...[
+              getMapCard(product),
+            ] else ...[
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Text(
+                    'Inicia sesión para contactar al vendedor',
+                    style: TextStyle(
+                        fontSize: 16,
+                        color: Color.fromARGB(255, 228, 230, 235)),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.pushNamed(context, '/login');
+                        },
+                        style: ButtonStyle(
+                            shape: MaterialStateProperty.all(
+                                RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8.0),
+                            )),
+                            backgroundColor: MaterialStateProperty.all(
+                                const Color.fromARGB(255, 18, 87, 189)),
+                            padding: MaterialStateProperty.all(
+                                const EdgeInsets.symmetric(vertical: 10))),
+                        child: const Text('Iniciar sesión',
+                            style:
+                                TextStyle(color: Colors.white, fontSize: 16)),
+                      )),
+                ],
+              )
+            ],
             const SizedBox(height: 8),
           ]),
         )
@@ -204,21 +246,45 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   Widget getSlider(Product product) {
     return CarouselSlider(
         items: product.productimages?.map((img) {
-          return Image.network(apiUrl + img.url,
-              width: double.infinity, fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return Shimmer.fromColors(
-                baseColor: Colors.grey.shade800,
-                highlightColor: Colors.grey.shade700,
-                child: Container(color: Colors.grey));
-          });
+          return GestureDetector(
+            onTap: () {
+              _showFullScreenImage(apiUrl + img.url);
+            },
+            child: Image.network(apiUrl + img.url,
+                width: double.infinity, fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Shimmer.fromColors(
+                  baseColor: Colors.grey.shade800,
+                  highlightColor: Colors.grey.shade700,
+                  child: Container(color: Colors.grey));
+            }),
+          );
         }).toList(),
         options: CarouselOptions(
           viewportFraction: 1,
           aspectRatio: 1,
           enableInfiniteScroll: false,
         ));
+  }
+
+  void _showFullScreenImage(String path) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return GestureDetector(
+          onTap: () {
+            Navigator.pop(context);
+          },
+          child: SizedBox.expand(
+            child: Image.network(
+              path,
+              width: MediaQuery.of(context).size.width,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget getCardMessage() {
@@ -317,7 +383,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             }
           },
           child: Image.network(
-              'https://maps.googleapis.com/maps/api/staticmap?center=${product.latitude},${product.longitude}&zoom=14&size=900x400&key=$mapsApiKey',
+              'https://maps.googleapis.com/maps/api/staticmap?center=${product.latitude},${product.longitude}&markers=size:mid%7Ccolor:red%7C${product.latitude},${product.longitude}&zoom=14&size=900x400&key=$mapsApiKey',
               width: double.infinity,
               height: 120,
               fit: BoxFit.cover,
