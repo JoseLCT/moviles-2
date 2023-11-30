@@ -13,6 +13,10 @@ migrate_working_dir/
 # environment
 .env
 
+# android/ios
+android/
+ios/
+
 # IntelliJ related
 *.iml
 *.ipr
