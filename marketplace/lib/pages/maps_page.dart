@@ -236,6 +236,9 @@ class _MapsPageState extends State<MapsPage> {
                   radius: double.parse(validRadius),
                   zoom: _zoom,
                 );
+                if (_mode == 'chat') {
+                  Navigator.of(context).pop(mapData);
+                }
                 String storageMapItem = 'currentLocation';
                 if (_mode == 'product') {
                   storageMapItem = 'productLocation';

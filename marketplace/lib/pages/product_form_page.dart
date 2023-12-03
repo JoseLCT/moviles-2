@@ -13,7 +13,6 @@ import 'package:marketplace/models/product_model.dart';
 import 'package:marketplace/models/user_model.dart';
 import 'package:marketplace/services/auth_service.dart';
 import 'package:marketplace/services/category_service.dart';
-import 'package:marketplace/services/map_service.dart';
 import 'package:marketplace/services/product_service.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -40,6 +39,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
   final String apiUrl = dotenv.get('API_URL');
   List<int> imagesToDelete = [];
   User? user;
+  final String mapsApiKey = dotenv.get('GOOGLE_MAPS_API_KEY');
 
   @override
   void initState() {

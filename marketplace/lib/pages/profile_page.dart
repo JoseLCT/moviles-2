@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:localstorage/localstorage.dart';
+import 'package:marketplace/models/chat_model.dart';
 import 'package:marketplace/models/product_model.dart';
 import 'package:marketplace/models/user_model.dart';
 import 'package:marketplace/services/auth_service.dart';
+import 'package:marketplace/services/chat_service.dart';
 import 'package:marketplace/services/product_service.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -19,16 +22,14 @@ class _ProfilePageState extends State<ProfilePage> {
   final String apiUrl = dotenv.get('API_URL');
   Future<List<Product>>? products;
   User? _user;
+  late IO.Socket socket;
 
   @override
   void initState() {
     super.initState();
     String token = storage.getItem('token');
     getUser(token).then((value) {
-      setState(() {
-        _user = value;
-      });
-    }).then((_) {
+      initSocket();
       getProductsByToken(token).then((value) {
         setState(() {
           products = Future.value(value);
@@ -38,6 +39,9 @@ class _ProfilePageState extends State<ProfilePage> {
             backgroundColor: Colors.red,
             content: Text(error.toString(),
                 style: const TextStyle(color: Colors.white))));
+      });
+      setState(() {
+        _user = value;
       });
     }).catchError((error) {
       String errorMessage = error.toString().split(':')[1].trim();
@@ -50,6 +54,24 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: TextStyle(color: Colors.white))));
       }
     });
+  }
+
+  void initSocket() {
+    socket = IO.io(apiUrl, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+    });
+    socket.connect();
+    socket.onConnect((_) {
+      print('connect');
+    });
+    socket.on('new-message', (data) {
+      print(data);
+    });
+    socket.on('mensajeRecibido', (data) {
+      print(data);
+    });
+    socket.onDisconnect((_) => print('disconnect'));
   }
 
   @override
@@ -237,13 +259,6 @@ class _ProfilePageState extends State<ProfilePage> {
         ));
   }
 
-  Widget chatsTab() {
-    return Container(
-      alignment: Alignment.center,
-      child: Text('Register'),
-    );
-  }
-
   Widget getProductListView() {
     return FutureBuilder<List<Product>>(
       future: products,
@@ -362,6 +377,7 @@ class _ProfilePageState extends State<ProfilePage> {
           GestureDetector(
             onTap: () {
               Navigator.pop(context);
+              // TODO: Ver mensajes
               // Navigator.pushNamed(context, '/product-detail',
               //     arguments: {'id': product.id});
             },
@@ -377,7 +393,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: const Icon(Icons.question_answer_rounded,
                             color: Colors.white, size: 20)),
                     const SizedBox(width: 16),
-                    const Text('Ver mensajes',
+                    const Text('Ver chats',
                         style: TextStyle(color: Colors.white, fontSize: 16)),
                   ],
                 )),
@@ -501,5 +517,150 @@ class _ProfilePageState extends State<ProfilePage> {
         ],
       ),
     );
+  }
+
+  Widget chatsTab() {
+    return FutureBuilder(
+      future: getChatsByUser(storage.getItem('token')),
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          return ListView.builder(
+            itemCount: snapshot.data?.length ?? 0,
+            itemBuilder: (context, index) {
+              return getChatView(snapshot.data?[index]);
+            },
+          );
+        } else if (snapshot.hasError) {
+          return const Text('Error');
+        } else {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.blue),
+          );
+        }
+      },
+    );
+  }
+
+  Widget getChatView(Chat? chat) {
+    if (chat == null) {
+      return const Text('Error');
+    }
+    String lastMessage = '';
+    if (chat.lastMessage?.userIdSender == _user?.id) {
+      lastMessage = 'Tú: ';
+    }
+    switch (chat.lastMessage?.type) {
+      case 1:
+        lastMessage += chat.lastMessage?.message ?? 'Sin mensajes';
+        break;
+      case 2:
+        lastMessage += 'Imagen';
+        break;
+      case 3:
+        lastMessage += 'Ubicación';
+        break;
+      default:
+        lastMessage = 'Sin mensajes';
+        break;
+    }
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(
+          context,
+          '/chat',
+          arguments: {
+            'chatId': chat.id,
+            'productId': chat.productId,
+            'userId': chat.userId,
+          },
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        child: Row(
+          children: [
+            FutureBuilder(
+                future: getProduct(chat.productId ?? 0),
+                builder: (context, snapshot) {
+                  if (snapshot.hasData) {
+                    return getProductImage(snapshot.data);
+                  } else if (snapshot.hasError) {
+                    return const Text('Error');
+                  } else {
+                    return Shimmer.fromColors(
+                        baseColor: Colors.grey.shade800,
+                        highlightColor: Colors.grey.shade700,
+                        child: Container(
+                            width: MediaQuery.of(context).size.width * 0.15,
+                            height: MediaQuery.of(context).size.width * 0.15,
+                            decoration: BoxDecoration(
+                                color: Colors.grey.shade800,
+                                borderRadius: BorderRadius.circular(50))));
+                  }
+                }),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(chat.product?.name ?? 'Sin nombre',
+                    style: const TextStyle(color: Colors.white, fontSize: 16)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(lastMessage,
+                        style: const TextStyle(color: Colors.grey)),
+                    if (chat.lastMessage?.type != null &&
+                        chat.lastMessage?.type != 1) ...[
+                      const SizedBox(width: 4),
+                      Icon(
+                          chat.lastMessage?.type == 2
+                              ? Icons.image
+                              : Icons.place,
+                          color: Colors.grey.shade500,
+                          size: 16),
+                    ],
+                  ],
+                )
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget getProductImage(Product? product) {
+    if (product == null) {
+      return const Text('Error');
+    }
+    return ClipRRect(
+        borderRadius: BorderRadius.circular(50),
+        child:
+            product.productimages != null && product.productimages!.isNotEmpty
+                ? Image.network(apiUrl + product.productimages![0].url,
+                    fit: BoxFit.cover,
+                    width: MediaQuery.of(context).size.width * 0.15,
+                    height: MediaQuery.of(context).size.width * 0.15,
+                    loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Shimmer.fromColors(
+                      baseColor: Colors.grey.shade800,
+                      highlightColor: Colors.grey.shade700,
+                      child: Container(
+                          width: MediaQuery.of(context).size.width * 0.15,
+                          height: MediaQuery.of(context).size.width * 0.15,
+                          decoration: BoxDecoration(
+                              color: Colors.grey.shade800,
+                              borderRadius: BorderRadius.circular(50))),
+                    );
+                  })
+                : Container(
+                    width: MediaQuery.of(context).size.width * 0.15,
+                    height: MediaQuery.of(context).size.width * 0.15,
+                    decoration: BoxDecoration(
+                        color: Colors.grey.shade800,
+                        borderRadius: BorderRadius.circular(25)),
+                    child: const Icon(Icons.image, color: Colors.grey)));
   }
 }
