@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:localstorage/localstorage.dart';
+import 'package:marketplace/models/chat_model.dart';
 import 'package:marketplace/models/map_data_model.dart';
 import 'package:marketplace/models/message_model.dart';
 import 'package:marketplace/models/product_model.dart';
@@ -9,6 +10,7 @@ import 'package:marketplace/services/chat_service.dart';
 import 'package:marketplace/services/product_service.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
@@ -20,6 +22,7 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   final LocalStorage storage = LocalStorage('marketplace_app');
   final String apiUrl = dotenv.get('API_URL');
+  Chat? chat;
   int id = 0;
   int productId = 0;
   int userId = 0;
@@ -27,20 +30,26 @@ class _ChatPageState extends State<ChatPage> {
   Future<List<Message>>? messages;
   TextEditingController messageController = TextEditingController();
   final String mapsApiKey = dotenv.get('GOOGLE_MAPS_API_KEY');
+  ScrollController scrollController = ScrollController();
+  late IO.Socket socket;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final arguments = (ModalRoute.of(context)?.settings.arguments ??
         <String, dynamic>{}) as Map;
-    id = arguments['chatId'] ?? 0;
+    chat = arguments['chat'];
+    product = chat?.product;
+    id = chat?.id ?? 0;
     productId = arguments['productId'] ?? 0;
     userId = arguments['userId'] ?? 0;
     if (id != 0) {
       _loadMessages();
+      initSocket();
     }
     if (productId != 0) {
       getProduct(productId).then((value) {
+        if (!mounted) return;
         setState(() {
           product = value;
         });
@@ -48,11 +57,56 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  void initSocket() {
+    socket = IO.io(apiUrl, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': false,
+    });
+    if (socket.connected) {
+      socket.emit('identificarUsuario', {'id': userId});
+    }
+    socket.connect();
+    socket.onConnect((_) {
+      socket.emit('identificarUsuario', {'id': userId});
+    });
+    socket.on('usuarioIdentificado', (data) {
+      print(data);
+    });
+    socket.on('mensajeRecibido', (data) {
+      getChatsByUser(storage.getItem('token')).then((value) {
+        if (!mounted) return;
+        setState(() {
+          Message message = Message.fromJson(data);
+          if (message.chatId == id) {
+            _loadMessages();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                backgroundColor: const Color.fromARGB(255, 18, 87, 189),
+                content: Text(
+                    '${message.userSender?.fullname ?? 'Sin nombre'} te ha enviado un mensaje',
+                    style: const TextStyle(color: Colors.white))));
+          }
+        });
+      });
+    });
+    socket.onDisconnect((_) => print('disconnect'));
+    socket.on('fromServer', (_) => print(_));
+  }
+
   void _loadMessages() async {
     String token = storage.getItem('token');
-
-    messages = getMessagesByChat(id, token);
-    setState(() {});
+    getMessagesByChat(id, token).then((value) {
+      setState(() {
+        messages = Future.value(value);
+        if (scrollController.hasClients) {
+          scrollController.animateTo(
+            scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    });
   }
 
   @override
@@ -65,7 +119,7 @@ class _ChatPageState extends State<ChatPage> {
           children: [
             getProductImage(),
             const SizedBox(width: 10),
-            Text(product?.name ?? '',
+            Text('${chat?.user?.fullname ?? ''} · ${product?.name ?? ''}',
                 style: const TextStyle(color: Colors.white, fontSize: 16)),
           ],
         ),
@@ -73,6 +127,8 @@ class _ChatPageState extends State<ChatPage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
           onPressed: () {
+            socket.disconnect();
+            socket.dispose();
             Navigator.pop(context);
           },
         ),
@@ -86,6 +142,7 @@ class _ChatPageState extends State<ChatPage> {
                 builder: (context, snapshot) {
                   if (snapshot.hasData) {
                     return ListView.builder(
+                      controller: scrollController,
                       itemCount: snapshot.data?.length,
                       itemBuilder: (context, index) {
                         return getMessageView(snapshot.data?[index]);
@@ -174,11 +231,13 @@ class _ChatPageState extends State<ChatPage> {
               child: const Icon(Icons.store, color: Colors.white),
             ),
             const SizedBox(width: 10),
-            Text(
-                product?.price == 0
-                    ? 'Gratis - ${product?.name}'
-                    : 'Bs. ${product?.price.toString()} - ${product?.name}',
-                style: const TextStyle(color: Colors.white, fontSize: 16)),
+            if (product != null) ...[
+              Text(
+                  product?.price == 0
+                      ? 'Gratis - ${product?.name}'
+                      : 'Bs. ${product?.price.toString()} - ${product?.name}',
+                  style: const TextStyle(color: Colors.white, fontSize: 16)),
+            ],
           ],
         ),
         const SizedBox(height: 10),
@@ -186,7 +245,10 @@ class _ChatPageState extends State<ChatPage> {
           children: [
             Expanded(
               child: TextButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    Navigator.pushNamed(context, '/product-detail',
+                        arguments: {'id': product?.id});
+                  },
                   style: TextButton.styleFrom(
                     backgroundColor: Colors.grey.shade800,
                     shape: RoundedRectangleBorder(
@@ -200,7 +262,16 @@ class _ChatPageState extends State<ChatPage> {
               const SizedBox(width: 10),
               Expanded(
                 child: TextButton(
-                    onPressed: () {},
+                    onPressed: () {
+                      soldProduct(productId, storage.getItem('token'))
+                          .then((value) {
+                        if (value) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: Text(
+                                  'Producto vendido a ${chat?.user?.fullname ?? 'Sin nombre'}')));
+                        }
+                      });
+                    },
                     style: TextButton.styleFrom(
                       backgroundColor: Colors.grey.shade800,
                       shape: RoundedRectangleBorder(
@@ -239,7 +310,7 @@ class _ChatPageState extends State<ChatPage> {
   Widget getTextMessage(Message message) {
     return Container(
       padding: const EdgeInsets.all(10),
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(top: 10),
       constraints: const BoxConstraints(maxWidth: 200),
       decoration: BoxDecoration(
         color: Colors.grey.shade800,
@@ -269,7 +340,7 @@ class _ChatPageState extends State<ChatPage> {
         showFullScreenImage(message.imageUrl!);
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
+        margin: const EdgeInsets.only(top: 10),
         decoration: BoxDecoration(
           color: Colors.grey.shade800,
           borderRadius: BorderRadius.circular(10),
@@ -304,7 +375,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget getMapMessage(Message message) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(top: 10),
       decoration: BoxDecoration(
         color: Colors.grey.shade800,
         borderRadius: BorderRadius.circular(10),
@@ -421,9 +492,11 @@ class _ChatPageState extends State<ChatPage> {
                       message: messageController.text,
                       type: 1,
                     );
-                    sendMessage(message, storage.getItem('token'));
                     messageController.clear();
-                    _loadMessages();
+                    sendMessage(message, storage.getItem('token'))
+                        .then((value) {
+                      _loadMessages();
+                    });
                   }
                 },
               ),
@@ -499,8 +572,10 @@ class _ChatPageState extends State<ChatPage> {
                           longitude: value.longitude,
                           type: 3,
                         );
-                        sendMessage(message, storage.getItem('token'));
-                        _loadMessages();
+                        sendMessage(message, storage.getItem('token'))
+                            .then((value) {
+                          _loadMessages();
+                        });
                       }
                     });
                   },
@@ -534,7 +609,9 @@ class _ChatPageState extends State<ChatPage> {
       imageUrl: image.path,
       type: 2,
     );
-    sendMessage(message, storage.getItem('token'));
+    sendMessage(message, storage.getItem('token')).then((value) {
+      _loadMessages();
+    });
   }
 
   Future<void> showFullScreenImage(String url) async {

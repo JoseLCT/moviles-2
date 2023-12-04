@@ -17,6 +17,19 @@ Future<List<Chat>> getChatsByUser(String token) async {
   }
 }
 
+Future<List<Chat>> getChatsByProduct(int productId, String token) async {
+  final response =
+      await http.get(Uri.parse('$url/api/products/$productId/chats'), headers: {
+    'Authorization': 'Bearer $token',
+  });
+  if (response.statusCode == 200) {
+    final List<Chat> chats = chatListFromJson(response.body);
+    return chats;
+  } else {
+    throw Exception(response.body);
+  }
+}
+
 Future<List<Message>> getMessagesByChat(int id, String token) async {
   final response =
       await http.get(Uri.parse('$url/api/chats/$id/messages'), headers: {
@@ -58,5 +71,20 @@ Future<void> sendMessage(Message message, String token) async {
 
   if (response.statusCode != 200) {
     throw Exception(response.reasonPhrase);
+  }
+}
+
+Future<Chat> createChat(int productId, String token) async {
+  final response = await http.post(Uri.parse('$url/api/chats'), headers: {
+    'Authorization': 'Bearer $token',
+  }, body: {
+    'product_id': productId.toString(),
+  });
+
+  if (response.statusCode == 200) {
+    final Chat chat = chatFromJson(response.body);
+    return chat;
+  } else {
+    throw Exception(response.body);
   }
 }

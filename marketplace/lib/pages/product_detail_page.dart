@@ -2,7 +2,12 @@ import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:localstorage/localstorage.dart';
+import 'package:marketplace/models/chat_model.dart';
+import 'package:marketplace/models/message_model.dart';
 import 'package:marketplace/models/product_model.dart';
+import 'package:marketplace/models/user_model.dart';
+import 'package:marketplace/services/auth_service.dart';
+import 'package:marketplace/services/chat_service.dart';
 import 'package:marketplace/services/product_service.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,12 +24,28 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   final String mapsApiKey = dotenv.get('GOOGLE_MAPS_API_KEY');
   final _formKey = GlobalKey<FormState>();
   final LocalStorage storage = LocalStorage('marketplace_app');
+  int productId = 0;
+  final TextEditingController _messageController = TextEditingController();
+  User? user;
+
+  @override
+  void initState() {
+    super.initState();
+    String token = storage.getItem('token') ?? '';
+    if (token.isNotEmpty) {
+      getUser(token).then((value) {
+        setState(() {
+          user = value;
+        });
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final arguments = (ModalRoute.of(context)?.settings.arguments ??
         <String, dynamic>{}) as Map;
-    final int id = arguments['id'];
+    productId = arguments['id'] ?? 0;
 
     return Scaffold(
       backgroundColor: Colors.grey.shade900,
@@ -39,7 +60,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         backgroundColor: Colors.grey.shade900,
       ),
       body: FutureBuilder(
-          future: getProduct(id),
+          future: getProduct(productId),
           builder: (context, snapshot) {
             if (snapshot.hasData) {
               return getProductView(snapshot.data);
@@ -87,12 +108,27 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                   fontWeight: FontWeight.bold,
                   color: Colors.white),
             ),
-            Text(
-              product.price == 0 ? 'Gratis' : 'Bs. ${product.price}',
-              style: const TextStyle(
-                  fontSize: 18, color: Color.fromARGB(255, 228, 230, 235)),
-            ),
-            if (token.isNotEmpty) ...[
+            Row(children: [
+              Text(
+                product.price == 0 ? 'Gratis' : 'Bs. ${product.price}',
+                style: const TextStyle(
+                    fontSize: 18, color: Color.fromARGB(255, 228, 230, 235)),
+              ),
+              if (product.sold == 1) ...[
+                const SizedBox(width: 8),
+                const Text(
+                  '·',
+                  style: TextStyle(
+                      fontSize: 18, color: Color.fromARGB(255, 228, 230, 235)),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Vendido',
+                  style: TextStyle(fontSize: 18, color: Colors.redAccent),
+                ),
+              ]
+            ]),
+            if (token.isNotEmpty && product.sold == 0 && product.userId != user?.id) ...[
               getCardMessage(),
             ] else ...[
               const SizedBox(height: 8),
@@ -140,17 +176,55 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                           fontSize: 16,
                           color: Color.fromARGB(255, 228, 230, 235)),
                     ),
-                    const Spacer(),
-                    Container(
-                      width: 35,
-                      height: 35,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(25),
-                        color: const Color.fromARGB(255, 54, 54, 54),
+                    if (product.sold == 0 && product.userId != user?.id) ...[
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () {
+                          getChatsByUser(token).then((value) {
+                            Chat? checkChat;
+                            for (var chat in value) {
+                              if (chat.productId == product.id) {
+                                checkChat = chat;
+                                break;
+                              }
+                            }
+                            if (checkChat == null) {
+                              createChat(product.id ?? 0, token)
+                                  .then((response) {
+                                Navigator.pushNamed(context, '/chat',
+                                    arguments: {
+                                      'productId': product.id,
+                                      'chat': response,
+                                      'userId': user?.id
+                                    });
+                              });
+                            } else {
+                              Navigator.pushNamed(context, '/chat',
+                                  arguments: {
+                                      'productId': product.id,
+                                      'chat': checkChat,
+                                      'userId': user?.id
+                                    });
+                            }
+                          }).catchError((error) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text(
+                                        'Error al abrir el chat, por favor intenta nuevamente')));
+                          });
+                        },
+                        child: Container(
+                          width: 35,
+                          height: 35,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(25),
+                            color: const Color.fromARGB(255, 54, 54, 54),
+                          ),
+                          child: const Icon(Icons.message,
+                              color: Colors.white, size: 20),
+                        ),
                       ),
-                      child: const Icon(Icons.message,
-                          color: Colors.white, size: 20),
-                    ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -312,11 +386,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     children: [
                       Expanded(
                         child: TextFormField(
-                          initialValue: 'Hola, sigue disponible el producto?',
+                          controller: _messageController,
+                          cursorColor: Colors.white,
                           decoration: InputDecoration(
                             hintText: 'Escribe tu mensaje...',
-                            hintStyle: const TextStyle(
-                                color: Color.fromARGB(255, 228, 230, 235)),
+                            hintStyle: TextStyle(color: Colors.grey.shade500),
                             filled: true,
                             fillColor: Colors.grey.shade700,
                             contentPadding: const EdgeInsets.symmetric(
@@ -330,8 +404,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                             ),
                           ),
                           style: const TextStyle(
-                              color: Color.fromARGB(255, 228, 230, 235),
-                              fontSize: 16),
+                              color: Colors.white, fontSize: 16),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'Por favor escribe un mensaje';
@@ -353,9 +426,64 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                         ),
                         onPressed: () {
                           if (_formKey.currentState!.validate()) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Sending message')));
+                            String token = storage.getItem('token') ?? '';
+                            getChatsByUser(token).then((chats) {
+                              Chat? checkChat;
+                              for (var chat in chats) {
+                                if (chat.productId == productId) {
+                                  checkChat = chat;
+                                  break;
+                                }
+                              }
+                              if (checkChat == null) {
+                                createChat(productId, token).then((response) {
+                                  Message message = Message(
+                                    chatId: response.id,
+                                    message: _messageController.text,
+                                    type: 1,
+                                  );
+                                  sendMessage(message, token).then((value) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            backgroundColor: Color.fromARGB(
+                                                255, 0, 122, 255),
+                                            content: Text(
+                                                'Mensaje enviado correctamente')));
+                                    _messageController.text = '';
+                                  }).catchError((error) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Error al enviar el mensaje')));
+                                  });
+                                });
+                              } else {
+                                Message message = Message(
+                                  chatId: checkChat.id,
+                                  message: _messageController.text,
+                                  type: 1,
+                                );
+                                sendMessage(message, token).then((value) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          backgroundColor:
+                                              Color.fromARGB(255, 0, 122, 255),
+                                          content: Text(
+                                              'Mensaje enviado correctamente')));
+                                  _messageController.text = '';
+                                }).catchError((error) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content: Text(
+                                              'Error al enviar el mensaje')));
+                                });
+                              }
+                            }).catchError((error) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content:
+                                          Text('Error al enviar el mensaje')));
+                            });
                           }
                         },
                         child: const Text('Enviar',

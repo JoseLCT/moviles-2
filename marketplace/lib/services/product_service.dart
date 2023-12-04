@@ -18,7 +18,6 @@ Future<List<Product>> getProducts() async {
 
 Future<Product?> getProduct(int id) async {
   final response = await http.get(Uri.parse('$url/api/products/$id'));
-
   if (response.statusCode == 200) {
     final Product product = productFromJson(response.body);
     return product;
@@ -140,6 +139,21 @@ Future<bool> deleteProduct(int id, String token) async {
     Uri.parse('$url/api/products/$id'),
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    },
+  );
+
+  if (response.statusCode == 200) {
+    return true;
+  } else {
+    throw Exception(response.body);
+  }
+}
+
+Future<bool> soldProduct(int id, String token) async {
+  final response = await http.post(
+    Uri.parse('$url/api/products/$id/sold'),
+    headers: {
       'Authorization': 'Bearer $token',
     },
   );

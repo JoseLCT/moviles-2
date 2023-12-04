@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:localstorage/localstorage.dart';
 import 'package:marketplace/models/chat_model.dart';
+import 'package:marketplace/models/message_model.dart';
 import 'package:marketplace/models/product_model.dart';
 import 'package:marketplace/models/user_model.dart';
 import 'package:marketplace/services/auth_service.dart';
@@ -23,13 +24,13 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<List<Product>>? products;
   User? _user;
   late IO.Socket socket;
+  Future<List<Chat>>? chats;
 
   @override
   void initState() {
     super.initState();
     String token = storage.getItem('token');
     getUser(token).then((value) {
-      initSocket();
       getProductsByToken(token).then((value) {
         setState(() {
           products = Future.value(value);
@@ -40,8 +41,10 @@ class _ProfilePageState extends State<ProfilePage> {
             content: Text(error.toString(),
                 style: const TextStyle(color: Colors.white))));
       });
+      loadChats();
       setState(() {
         _user = value;
+        initSocket();
       });
     }).catchError((error) {
       String errorMessage = error.toString().split(':')[1].trim();
@@ -56,22 +59,67 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
+  void loadChats() {
+    String token = storage.getItem('token');
+    getChatsByUser(token).then((value) {
+      setState(() {
+        value.sort((a, b) {
+          if (a.lastMessage?.createdAt == null ||
+              b.lastMessage?.createdAt == null) {
+            return 0;
+          }
+          return b.lastMessage!.createdAt!.compareTo(a.lastMessage!.createdAt!);
+        });
+        chats = Future.value(value);
+      });
+    }).catchError((error) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(error.toString(),
+              style: const TextStyle(color: Colors.white))));
+    });
+  }
+
   void initSocket() {
     socket = IO.io(apiUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
     });
+    if (socket.connected) {
+      socket.emit('identificarUsuario', {'id': _user?.id});
+    }
     socket.connect();
     socket.onConnect((_) {
-      print('connect');
+      socket.emit('identificarUsuario', {'id': _user?.id});
     });
-    socket.on('new-message', (data) {
+    socket.on('usuarioIdentificado', (data) {
       print(data);
     });
     socket.on('mensajeRecibido', (data) {
-      print(data);
+      Message message = Message.fromJson(data);
+      getChatsByUser(storage.getItem('token')).then((value) {
+        if (!mounted) return;
+        setState(() {
+          value.sort((a, b) {
+            if (a.lastMessage?.createdAt == null ||
+                b.lastMessage?.createdAt == null) {
+              return 0;
+            }
+            return b.lastMessage!.createdAt!
+                .compareTo(a.lastMessage!.createdAt!);
+          });
+
+          chats = Future.value(value);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              backgroundColor: const Color.fromARGB(255, 18, 87, 189),
+              content: Text(
+                  '${message.userSender?.fullname ?? 'Sin nombre'} te ha enviado un mensaje',
+                  style: const TextStyle(color: Colors.white))));
+        });
+      });
     });
     socket.onDisconnect((_) => print('disconnect'));
+    socket.on('fromServer', (_) => print(_));
   }
 
   @override
@@ -87,6 +135,8 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: const Icon(Icons.arrow_back_ios_new_rounded,
                 color: Colors.white),
             onPressed: () {
+              socket.disconnect();
+              socket.dispose();
               Navigator.pop(context);
             },
           ),
@@ -343,7 +393,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       backgroundColor: Colors.grey.shade900,
                       barrierColor: Colors.black.withOpacity(0.5),
                       builder: (context) {
-                        return getProductOptionsView(product.id, context);
+                        return getProductOptionsView(product, context);
                       });
                 },
                 icon: const Icon(Icons.more_horiz_rounded, color: Colors.grey)),
@@ -352,7 +402,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget getProductOptionsView(
-      int? productId, BuildContext bottomSheetContext) {
+      Product product, BuildContext bottomSheetContext) {
     return Container(
       padding: const EdgeInsets.only(top: 12, bottom: 24),
       width: double.infinity,
@@ -376,10 +426,14 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(height: 16),
           GestureDetector(
             onTap: () {
-              Navigator.pop(context);
-              // TODO: Ver mensajes
-              // Navigator.pushNamed(context, '/product-detail',
-              //     arguments: {'id': product.id});
+              socket.disconnect();
+              socket.dispose();
+              Navigator.pop(bottomSheetContext);
+              Navigator.pushNamed(context, '/chat-list',
+                  arguments: {'user': _user, 'product': product}).then((_) {
+                initSocket();
+                loadChats();
+              });
             },
             child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -403,7 +457,7 @@ class _ProfilePageState extends State<ProfilePage> {
             onTap: () {
               Navigator.pop(context);
               Navigator.pushNamed(context, '/product-form',
-                  arguments: {'id': productId}).then((_) {
+                  arguments: {'id': product.id}).then((_) {
                 String token = storage.getItem('token');
                 getProductsByToken(token).then((value) {
                   setState(() {
@@ -456,11 +510,12 @@ class _ProfilePageState extends State<ProfilePage> {
                                 style: TextStyle(color: Colors.white))),
                         TextButton(
                             onPressed: () {
-                              if (productId == null) {
+                              if (product.id == null) {
                                 return;
                               }
                               String token = storage.getItem('token');
-                              deleteProduct(productId, token).then((value) {
+                              deleteProduct(product.id ?? 0, token)
+                                  .then((value) {
                                 String token = storage.getItem('token');
                                 getProductsByToken(token).then((value) {
                                   setState(() {
@@ -521,7 +576,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget chatsTab() {
     return FutureBuilder(
-      future: getChatsByUser(storage.getItem('token')),
+      future: chats,
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           return ListView.builder(
@@ -546,8 +601,9 @@ class _ProfilePageState extends State<ProfilePage> {
       return const Text('Error');
     }
     String lastMessage = '';
+    String userSender = '';
     if (chat.lastMessage?.userIdSender == _user?.id) {
-      lastMessage = 'Tú: ';
+      userSender = 'Tú:';
     }
     switch (chat.lastMessage?.type) {
       case 1:
@@ -563,21 +619,25 @@ class _ProfilePageState extends State<ProfilePage> {
         lastMessage = 'Sin mensajes';
         break;
     }
-    return GestureDetector(
-      onTap: () {
-        Navigator.pushNamed(
-          context,
-          '/chat',
-          arguments: {
-            'chatId': chat.id,
-            'productId': chat.productId,
-            'userId': chat.userId,
-          },
-        );
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: GestureDetector(
+        onTap: () {
+          socket.disconnect();
+          socket.dispose();
+          Navigator.pushNamed(
+            context,
+            '/chat',
+            arguments: {
+              'chat': chat,
+              'productId': chat.productId,
+              'userId': _user?.id,
+            },
+          ).then((value) {
+            initSocket();
+            loadChats();
+          });
+        },
         child: Row(
           children: [
             FutureBuilder(
@@ -603,13 +663,15 @@ class _ProfilePageState extends State<ProfilePage> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(chat.product?.name ?? 'Sin nombre',
+                Text(
+                    '${chat.user?.fullname ?? 'Sin nombre'} · ${chat.product?.name ?? 'Sin nombre'}',
                     style: const TextStyle(color: Colors.white, fontSize: 16)),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Text(lastMessage,
-                        style: const TextStyle(color: Colors.grey)),
+                    Text(userSender,
+                        style: const TextStyle(
+                            color: Color.fromARGB(255, 228, 230, 235))),
                     if (chat.lastMessage?.type != null &&
                         chat.lastMessage?.type != 1) ...[
                       const SizedBox(width: 4),
@@ -620,8 +682,16 @@ class _ProfilePageState extends State<ProfilePage> {
                           color: Colors.grey.shade500,
                           size: 16),
                     ],
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: MediaQuery.of(context).size.width * 0.4,
+                      child: Text(lastMessage,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Color.fromARGB(255, 228, 230, 235))),
+                    ),
                   ],
-                )
+                ),
               ],
             )
           ],
